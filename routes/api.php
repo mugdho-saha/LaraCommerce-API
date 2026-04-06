@@ -7,7 +7,15 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::get('/health', healthCheckController::class);
 
-    Route::get('/user', function (Request $request) {
+    // This route requires a valid Bearer Token
+    Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
         return $request->user();
-    })->middleware('auth:sanctum');
+    });
+
+    // Combining with your Spatie Roles
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        
+    });
+
+    require __DIR__.'/auth.php';
 });

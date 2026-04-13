@@ -32,6 +32,15 @@ class CategoryController extends Controller
         ], 201);
     }
 
+
+    public function show(Category $category){
+        return response()->json([
+            'success' => true,
+            'message' => 'Category details retrieved successfully.',
+            'data' => $category
+        ], 200);
+    }
+
     public function update(UpdateCategoryRequest $request, Category $category)
     {
         // $category is already the correct record found via the slug

@@ -13,20 +13,215 @@ use Illuminate\Support\Facades\Storage;
 class ProductController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Get all products with pagination
      */
-    public function index()
+    public function index(Request $request)
     {
+        $perPage = $request->get('per_page', 15);
+        
         $products = Product::where('product_status', true)
-        ->with('category')
-        ->get();
+            ->with('category')
+            ->latest()
+            ->paginate($perPage);
 
-        // Use ::collection() for multiple items
         return ProductResource::collection($products)
-        ->additional([
-            'success' => true,
-            'message' => 'Products retrieved successfully.'
+            ->additional([
+                'success' => true,
+                'message' => 'Products retrieved successfully.'
+            ]);
+    }
+
+    /**
+     * Get single product
+     */
+    public function show(Product $product)
+    {
+        if (!$product->product_status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.'
+            ], 404);
+        }
+
+        $product->load('category');
+
+        return (new ProductResource($product))
+            ->additional([
+                'success' => true,
+                'message' => 'Product retrieved successfully.'
+            ]);
+    }
+
+    /**
+     * Get products by category
+     */
+    public function byCategory(Request $request, $category)
+    {
+        $perPage = $request->get('per_page', 15);
+        
+        // Support both category ID and slug
+        $categoryModel = is_numeric($category) 
+            ? Category::find($category)
+            : Category::where('slug', $category)->first();
+
+        if (!$categoryModel) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category not found.'
+            ], 404);
+        }
+
+        $products = Product::where('product_status', true)
+            ->where('category_id', $categoryModel->id)
+            ->with('category')
+            ->latest()
+            ->paginate($perPage);
+
+        return ProductResource::collection($products)
+            ->additional([
+                'success' => true,
+                'message' => "Products in {$categoryModel->name} retrieved successfully.",
+                'category' => $categoryModel
+            ]);
+    }
+
+    /**
+     * Search products
+     */
+    public function search(Request $request)
+    {
+        $request->validate([
+            'q' => 'required|string|min:2',
+            'per_page' => 'nullable|integer|min:1|max:100'
         ]);
+
+        $query = $request->get('q');
+        $perPage = $request->get('per_page', 15);
+
+        $products = Product::where('product_status', true)
+            ->where(function ($q) use ($query) {
+                $q->where('name', 'LIKE', "%{$query}%")
+                  ->orWhere('description', 'LIKE', "%{$query}%")
+                  ->orWhere('sku', 'LIKE', "%{$query}%");
+            })
+            ->with('category')
+            ->latest()
+            ->paginate($perPage);
+
+        return ProductResource::collection($products)
+            ->additional([
+                'success' => true,
+                'message' => 'Search results retrieved successfully.',
+                'search_query' => $query
+            ]);
+    }
+
+    /**
+     * Advanced filter products
+     */
+    public function filter(Request $request)
+    {
+        $request->validate([
+            'category_id' => 'nullable|exists:categories,id',
+            'min_price' => 'nullable|numeric|min:0',
+            'max_price' => 'nullable|numeric|min:0',
+            'sort_by' => 'nullable|in:price_asc,price_desc,name_asc,name_desc,latest,oldest',
+            'per_page' => 'nullable|integer|min:1|max:100'
+        ]);
+
+        $query = Product::where('product_status', true)->with('category');
+
+        // Filter by category
+        if ($request->has('category_id')) {
+            $query->where('category_id', $request->category_id);
+        }
+
+        // Filter by price range
+        if ($request->has('min_price')) {
+            $query->where('price', '>=', $request->min_price);
+        }
+
+        if ($request->has('max_price')) {
+            $query->where('price', '<=', $request->max_price);
+        }
+
+        // Filter by stock availability
+        if ($request->has('in_stock') && $request->in_stock == true) {
+            $query->where('stock', '>', 0);
+        }
+
+        // Sorting
+        switch ($request->get('sort_by', 'latest')) {
+            case 'price_asc':
+                $query->orderBy('price', 'asc');
+                break;
+            case 'price_desc':
+                $query->orderBy('price', 'desc');
+                break;
+            case 'name_asc':
+                $query->orderBy('name', 'asc');
+                break;
+            case 'name_desc':
+                $query->orderBy('name', 'desc');
+                break;
+            case 'oldest':
+                $query->oldest();
+                break;
+            case 'latest':
+            default:
+                $query->latest();
+                break;
+        }
+
+        $perPage = $request->get('per_page', 15);
+        $products = $query->paginate($perPage);
+
+        return ProductResource::collection($products)
+            ->additional([
+                'success' => true,
+                'message' => 'Filtered products retrieved successfully.',
+                'filters' => $request->only(['category_id', 'min_price', 'max_price', 'sort_by'])
+            ]);
+    }
+
+    /**
+     * Get featured products
+     */
+    public function featured(Request $request)
+    {
+        $perPage = $request->get('per_page', 15);
+        
+        $products = Product::where('product_status', true)
+            ->where('is_featured', true) // Assuming you have this column
+            ->with('category')
+            ->latest()
+            ->paginate($perPage);
+
+        return ProductResource::collection($products)
+            ->additional([
+                'success' => true,
+                'message' => 'Featured products retrieved successfully.'
+            ]);
+    }
+
+    /**
+     * Get latest products
+     */
+    public function latest(Request $request)
+    {
+        $limit = $request->get('limit', 10);
+        
+        $products = Product::where('product_status', true)
+            ->with('category')
+            ->latest()
+            ->limit($limit)
+            ->get();
+
+        return ProductResource::collection($products)
+            ->additional([
+                'success' => true,
+                'message' => 'Latest products retrieved successfully.'
+            ]);
     }
 
     /**
@@ -55,21 +250,7 @@ class ProductController extends Controller
         'message' => 'Product added successfully.'
     ], 201);
 }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(Product $product)
-    {
-        // Eager load the category so the Resource can access the name
-        $product->load('category');
-
-        return (new ProductResource($product))
-            ->additional([
-                'success' => true,
-                'message' => 'Product details retrieved successfully.'
-            ], 200);
-    }
+    
 
     /**
      * Update the specified resource in storage.

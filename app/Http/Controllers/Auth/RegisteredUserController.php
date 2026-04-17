@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse; // Import this
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
+use Spatie\Permission\Models\Role;
 
 class RegisteredUserController extends Controller
 {
@@ -34,8 +35,16 @@ class RegisteredUserController extends Controller
             'password' => Hash::make($request->string('password')),
         ]);
 
-        // Assign the role (ensure you ran the seeder first!)
-        $user->assignRole($request->role);
+        // Ensure baseline roles exist after fresh migrations without seeding.
+        $requestedRole = $request->string('role')->toString();
+        $guardName = config('auth.defaults.guard', 'web');
+
+        Role::firstOrCreate([
+            'name' => $requestedRole,
+            'guard_name' => $guardName,
+        ]);
+
+        $user->assignRole($requestedRole);
 
         event(new Registered($user));
 
